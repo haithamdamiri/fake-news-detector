@@ -1,0 +1,341 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fake News Detector</title>
+<meta name="description" content="Check whether a news article, headline or tweet reads like real or fake news, using the BERT and SVM models from Haitham Al Damiri's MSc dissertation (University of Liverpool).">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,600;6..72,700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --paper: #f6f3ec; --card: #fffdf8; --ink: #1b1a17; --muted: #5f5b52; --rule: #d9d3c4;
+    --fake: #b3261e; --fake-rgb: 179 38 30; --real: #1e6b3a; --real-rgb: 30 107 58;
+    --serif: "Newsreader", Georgia, serif; --sans: system-ui, -apple-system, "Segoe UI", sans-serif;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper: #13120f; --card: #1c1a16; --ink: #ece7dc; --muted: #a8a295; --rule: #39352c;
+      --fake: #ff8a80; --fake-rgb: 255 138 128; --real: #7fd49a; --real-rgb: 127 212 154;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper: #13120f; --card: #1c1a16; --ink: #ece7dc; --muted: #a8a295; --rule: #39352c;
+    --fake: #ff8a80; --fake-rgb: 255 138 128; --real: #7fd49a; --real-rgb: 127 212 154;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--paper); color: var(--ink); font: 17px/1.6 var(--sans); }
+  .wrap { max-width: 860px; margin: 0 auto; padding: 0 16px; }
+  a { color: inherit; text-underline-offset: 3px; }
+
+  header { border-bottom: 3px double var(--rule); padding: 40px 0 28px; text-align: center; }
+  .kicker { font-size: 12px; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
+  h1 { font: 700 clamp(40px, 8vw, 68px)/1.02 var(--serif); margin: 10px 0 14px; letter-spacing: -.01em; }
+  .dek { font: 400 20px/1.45 var(--serif); color: var(--muted); max-width: 620px; margin: 0 auto; }
+  .byline { margin-top: 14px; font-size: 14px; color: var(--muted); }
+
+  main { padding: 32px 0 56px; }
+  label.lead { display: block; font-weight: 600; margin-bottom: 8px; }
+  textarea {
+    width: 100%; min-height: 180px; resize: vertical; padding: 14px 16px; border: 1px solid var(--rule);
+    border-radius: 6px; background: var(--card); color: var(--ink); font: 17px/1.55 var(--serif);
+  }
+  textarea:focus-visible, button:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+  .examples { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 18px; align-items: center; font-size: 14px; color: var(--muted); }
+  .chip { font: 14px var(--sans); padding: 5px 11px; border-radius: 999px; border: 1px solid var(--rule); background: transparent; color: var(--ink); cursor: pointer; }
+  .chip:hover { background: var(--card); }
+  .actions { display: flex; flex-wrap: wrap; gap: 10px; }
+  .btn { font: 600 16px var(--sans); padding: 12px 20px; border-radius: 6px; border: 1px solid var(--ink); cursor: pointer; }
+  .btn.primary { background: var(--ink); color: var(--paper); }
+  .btn.secondary { background: transparent; color: var(--ink); }
+  .btn small { font-weight: 400; opacity: .75; }
+  .btn:disabled { opacity: .4; cursor: not-allowed; }
+
+  .privacy { font-size: 14px; color: var(--muted); margin: 10px 0 0; }
+  #error { margin-top: 16px; color: var(--fake); font-weight: 600; }
+  #result { margin-top: 28px; border: 1px solid var(--rule); border-radius: 8px; background: var(--card); padding: 22px 22px 24px; }
+  .verdict { font: 700 44px/1 var(--serif); margin: 4px 0 6px; }
+  .verdict.fake { color: var(--fake); } .verdict.real { color: var(--real); }
+  .meta { font-size: 14px; color: var(--muted); }
+  .meter { position: relative; height: 10px; border-radius: 5px; margin: 18px 0 6px;
+    background: linear-gradient(90deg, rgb(var(--fake-rgb) / .8), rgb(var(--fake-rgb) / .15) 50%, rgb(var(--real-rgb) / .15) 50%, rgb(var(--real-rgb) / .8)); }
+  .meter i { position: absolute; top: -5px; width: 4px; height: 20px; margin-left: -2px; background: var(--ink); border-radius: 2px; transition: left .4s; }
+  .scale { display: flex; justify-content: space-between; font-size: 13px; color: var(--muted); }
+  .warn { margin-top: 14px; padding: 10px 12px; border-left: 3px solid var(--muted); background: var(--paper); font-size: 15px; }
+  .source { margin-top: 14px; font-size: 14px; color: var(--muted); word-break: break-all; }
+  h3 { font: 600 20px var(--serif); margin: 24px 0 8px; }
+  .legend { font-size: 14px; color: var(--muted); margin-bottom: 10px; }
+  .legend b { padding: 1px 6px; border-radius: 3px; font-weight: 500; color: var(--ink); }
+  .text { font: 17px/1.75 var(--serif); max-height: 360px; overflow: auto; white-space: pre-wrap; padding-right: 6px; }
+  .text span { border-radius: 3px; padding: 1px 0; }
+  .signals { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 24px; font-size: 15px; }
+  .signals ol { margin: 4px 0 0; padding-left: 20px; }
+
+  section.about { border-top: 3px double var(--rule); margin-top: 56px; padding-top: 8px; }
+  h2 { font: 700 30px/1.2 var(--serif); margin: 32px 0 10px; }
+  .about p, .about li { font: 18px/1.65 var(--serif); }
+  table { width: 100%; border-collapse: collapse; font-size: 16px; margin: 8px 0; }
+  th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--rule); }
+  th { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 600; }
+  td.num { font-variant-numeric: tabular-nums; }
+  .tag { font-size: 12px; border: 1px solid var(--rule); border-radius: 999px; padding: 1px 8px; margin-left: 6px; color: var(--muted); white-space: nowrap; }
+  .note { font-size: 14px !important; color: var(--muted); font-family: var(--sans) !important; }
+  footer { border-top: 1px solid var(--rule); padding: 20px 0 40px; font-size: 14px; color: var(--muted); text-align: center; }
+  @media (max-width: 560px) { .signals { grid-template-columns: 1fr; } .verdict { font-size: 36px; } .btn { flex: 1 1 100%; } }
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <div class="kicker">MSc Dissertation &middot; University of Liverpool</div>
+    <h1>The Fake News Detector</h1>
+    <p class="dek">Paste a news article, a headline or a tweet (or a link to one) and the models from my dissertation will judge whether it reads like real or fake news.</p>
+    <div class="byline">By Haitham Al Damiri</div>
+  </div>
+</header>
+
+<main class="wrap">
+  <label class="lead" for="input">Text or link to check</label>
+  <textarea id="input" maxlength="50000" placeholder="Paste an article, headline or tweet, or a tweet link such as https://x.com/user/status/..."></textarea>
+
+  <div class="examples">
+    <span>Try:</span>
+    <button class="chip" data-example="0">Real-style report</button>
+    <button class="chip" data-example="1">Conspiracy post</button>
+    <button class="chip" data-example="2">Fake claim, wire-service style</button>
+  </div>
+
+  <div class="actions">
+    <button class="btn primary" id="btn-svm" data-model="svm">Check <small>&middot; SVM, instant</small></button>
+    <button class="btn secondary" id="btn-bert" data-model="bert">Deep check <small>&middot; BERT, 110 MB one-time download</small></button>
+  </div>
+  <p class="privacy">Both models run in your browser. The text you check never leaves your device.</p>
+
+  <div id="error" role="alert" hidden></div>
+
+  <section id="result" aria-live="polite" hidden>
+    <div class="meta" id="r-model"></div>
+    <div class="verdict" id="r-verdict"></div>
+    <div class="meta" id="r-conf"></div>
+    <div class="meter" aria-hidden="true"><i id="r-marker"></i></div>
+    <div class="scale"><span>Fake</span><span>Real</span></div>
+    <div class="warn" id="r-warn" hidden></div>
+    <div class="source" id="r-source" hidden></div>
+
+    <div id="r-explain">
+      <h3>Why the SVM decided this</h3>
+      <div class="legend">Words the model scored: <b style="background: rgb(var(--fake-rgb) / .35)">pushes toward Fake</b> <b style="background: rgb(var(--real-rgb) / .35)">pushes toward Real</b>. Unhighlighted words were removed during cleaning or aren't in the model's 5,000-word vocabulary.</div>
+      <div class="signals">
+        <div><strong style="color: var(--fake)">Strongest fake signals</strong><ol id="r-fake"></ol></div>
+        <div><strong style="color: var(--real)">Strongest real signals</strong><ol id="r-real"></ol></div>
+      </div>
+      <h3>Highlighted text</h3>
+    </div>
+    <h3 id="r-text-title" hidden>Text analysed</h3>
+    <div class="text" id="r-text"></div>
+  </section>
+
+  <section class="about" id="about">
+    <h2>How it works</h2>
+    <p>Every input goes through the same cleaning used in training: HTML and links are removed, text is lower-cased, stop words and non-alphabetic tokens are dropped, and the remaining words are lemmatised. Tweet links are read through X&rsquo;s public embed service first.</p>
+    <p>There&rsquo;s no server doing the work: both models were exported from Python and run directly in your browser, the SVM as plain JavaScript and BERT through <a href="https://huggingface.co/docs/transformers.js" target="_blank" rel="noopener">Transformers.js</a>. That keeps the site free to host and means the text you check stays on your device.</p>
+    <p>The cleaned text then goes to one of two models, both trained on the <a href="https://www.kaggle.com/datasets/clmentbisaillon/fake-and-real-news-dataset" target="_blank" rel="noopener">Kaggle Fake and Real News dataset</a> (44,898 articles):</p>
+    <ul>
+      <li><strong>Check</strong> uses TF-IDF with a linear SVM. It runs in milliseconds and shows exactly which words drove the result.</li>
+      <li><strong>Deep check</strong> uses a fine-tuned BERT (bert-base-uncased) that reads words in context. It&rsquo;s slower and can&rsquo;t show per-word reasons.</li>
+    </ul>
+
+    <h2>Dissertation results</h2>
+    <table>
+      <thead><tr><th>Model</th><th>Test F1</th></tr></thead>
+      <tbody>
+        <tr><td>TF-IDF + Logistic Regression</td><td class="num">0.9719</td></tr>
+        <tr><td>TF-IDF + Linear SVM <span class="tag">Check</span></td><td class="num">0.9798</td></tr>
+        <tr><td>BERT (bert-base-uncased) <span class="tag">Deep check</span></td><td class="num">0.9825</td></tr>
+        <tr><td>RoBERTa (roberta-base)</td><td class="num">0.9765</td></tr>
+      </tbody>
+    </table>
+    <p>BERT scored highest, but only 0.27 points above the SVM, and RoBERTa came in below it. The transformers needed a GPU and roughly 100 minutes of training each; the SVM trains in about two minutes on a laptop. The dissertation concluded that <strong>TF-IDF + linear SVM gives the best balance of accuracy, efficiency and interpretability</strong>, which is why it&rsquo;s the default check here.</p>
+    <p class="note">The SVM on this site was retrained with calibrated probabilities (same features, same data split) and scores F1 0.9800 on the dissertation&rsquo;s test set. BERT runs here at its training length of 256 tokens, compressed to 8 bits so it fits in a browser, and scores F1 0.9931 on the same test set (0.9936 before compression). The table above reports the dissertation&rsquo;s 64-token re-evaluation.</p>
+
+    <h2>What it can&rsquo;t do</h2>
+    <p><strong>It judges writing style, not truth.</strong> 99% of the &ldquo;real&rdquo; articles in the training data come from Reuters, and every &ldquo;fake&rdquo; one comes from a different set of websites. The models learned to tell sober wire-service reporting apart from sensational partisan writing, which is a useful signal but not fact-checking. A false claim written in a calm Reuters voice can pass; try the &ldquo;Fake claim, wire-service style&rdquo; example above.</p>
+    <ul>
+      <li>The data covers 2016&ndash;2017, mostly US politics. Newer events, other countries and other topics are unfamiliar territory.</li>
+      <li>It was trained on full articles. Headlines and tweets are much shorter, so results on them are less reliable.</li>
+      <li>High confidence means the text strongly resembles one side of the training data, not that the claim has been verified.</li>
+    </ul>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    Haitham Al Damiri &middot; MSc Data Science and Artificial Intelligence, University of Liverpool &middot;
+    <a href="https://colab.research.google.com/drive/1fxLCdhzatMOxjFAlzxf5ljk_AhpYDw4T?usp=sharing" target="_blank" rel="noopener">Notebook on Google Colab</a> &middot;
+    <a href="https://github.com/haithamdamiri/fake-news-detector" target="_blank" rel="noopener">Code on GitHub</a>
+  </div>
+</footer>
+
+<script type="module">
+const EXAMPLES = [
+  "WASHINGTON (Reuters) - The U.S. Senate on Tuesday approved a bipartisan bill to fund the government through December, averting a shutdown days before a deadline, after Democrats and Republicans agreed to set aside a dispute over disaster aid. The measure passed 72-25 and now goes to the House of Representatives, where leaders said they expected a vote later this week. The White House said President Donald Trump would sign the bill if it reached his desk.",
+  "BREAKING: They are hiding the truth! The government has been secretly poisoning the water supply to control our minds!! The mainstream media won't tell you this but insiders have leaked EVERYTHING. Share this before it gets deleted. WAKE UP PEOPLE!",
+  "LONDON (Reuters) - Scientists at the University of Oxford said on Thursday they had confirmed that the Moon is made largely of cheese, according to a study published in the journal Nature. The findings, based on samples returned by a lunar mission last year, were reviewed by independent researchers, a spokesman for the university said.",
+];
+
+import { loadSvm, clean, keep, predictSvm } from "./model.js";
+
+const BERT_REPO = "haithamd/fake-news-bert"; // Hugging Face model repo holding the 8-bit ONNX export
+const TRANSFORMERS = "https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.0/dist/transformers.min.js";
+const TWEET = /^https?:\/\/(?:www\.|mobile\.)?(?:twitter|x)\.com\/\w+\/status(?:es)?\/\d+/i;
+
+const $ = (id) => document.getElementById(id);
+const input = $("input"), buttons = [$("btn-svm"), $("btn-bert")];
+const svmReady = fetch("model/svm.json").then((r) => r.json()).then(loadSvm)
+  .catch(() => { throw new Error("Couldn't load the model files. Refresh the page and try again."); });
+let bertReady = null;
+
+document.querySelectorAll("[data-example]").forEach((chip) =>
+  chip.addEventListener("click", () => { input.value = EXAMPLES[chip.dataset.example]; input.focus(); }));
+buttons.forEach((b) => b.addEventListener("click", () => check(b.dataset.model, b)));
+input.addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) check("svm", $("btn-svm")); });
+
+const stripHtml = (text) => new DOMParser().parseFromString(text, "text/html").body.textContent || "";
+
+// X's oEmbed endpoint has no CORS headers but supports JSONP, so a tweet can be read without a server.
+function fetchTweet(url) {
+  const fail = new Error("Couldn't load that tweet. It may be deleted or private. Paste its text instead.");
+  return new Promise((resolve, reject) => {
+    const cb = "tweet_" + Math.random().toString(36).slice(2), script = document.createElement("script");
+    const done = (fn, value) => { clearTimeout(timer); delete window[cb]; script.remove(); fn(value); };
+    const timer = setTimeout(() => done(reject, fail), 10000);
+    window[cb] = (data) => {
+      const p = new DOMParser().parseFromString(String(data.html).replace(/<br\s*\/?>/gi, "\n"), "text/html").querySelector("p");
+      p ? done(resolve, p.textContent) : done(reject, fail);
+    };
+    script.onerror = () => done(reject, fail);
+    const tweetUrl = url.replace(/\/\/(?:www\.|mobile\.)?x\.com\//i, "//twitter.com/");
+    script.src = `https://publish.x.com/oembed?omit_script=true&callback=${cb}&url=${encodeURIComponent(tweetUrl)}`;
+    document.head.append(script);
+  });
+}
+
+function loadBert(btn) {
+  bertReady ??= (async () => {
+    const { pipeline, env } = await import(TRANSFORMERS);
+    const local = ["localhost", "127.0.0.1"].includes(location.hostname);
+    if (local) { env.allowLocalModels = true; env.allowRemoteModels = false; env.localModelPath = "model/"; } // relative: transformers.js 4.3 skips tokenizer lookup for absolute URLs
+    return pipeline("text-classification", local ? "bert" : BERT_REPO, {
+      dtype: "q8",
+      progress_callback: (e) => {
+        if (e.status === "progress" && e.file.endsWith(".onnx")) btn.textContent = `Downloading BERT… ${Math.round(e.progress)}%`;
+      },
+    });
+  })().catch((err) => {
+    console.error(err);
+    bertReady = null;
+    throw new Error("Couldn't download the BERT model. Check your connection and try again.");
+  });
+  return bertReady;
+}
+
+async function check(model, btn) {
+  let text = input.value.trim();
+  if (!text) { input.focus(); return; }
+  const label = btn.innerHTML;
+  buttons.forEach((b) => (b.disabled = true));
+  btn.textContent = "Checking…";
+  $("error").hidden = true;
+  try {
+    let source = null;
+    if (/^https?:\/\/\S+$/i.test(text)) {
+      if (!TWEET.test(text)) throw new Error("Only tweet links can be read here: browsers can't fetch other news sites directly. Open the article and paste its text instead.");
+      btn.textContent = "Fetching tweet…";
+      source = { url: text, kind: "tweet" };
+      text = await fetchTweet(text);
+    } else {
+      text = stripHtml(text);
+    }
+
+    const m = await svmReady;
+    const words = clean(text, m);
+    if (!words.length) throw new Error("No usable English words found. Try a longer piece of text.");
+
+    let pReal, weights = new Map(), start;
+    if (model === "bert") {
+      const classify = await loadBert(btn);
+      btn.textContent = "Checking…";
+      start = performance.now();
+      pReal = (await classify(words.join(" "), { top_k: null })).find((o) => o.label === "Real").score;
+    } else {
+      start = performance.now();
+      ({ p: pReal, weights } = predictSvm(words, m));
+    }
+
+    render({
+      verdict: pReal >= 0.5 ? "Real" : "Fake",
+      p_real: pReal,
+      model,
+      ms: Math.round(performance.now() - start),
+      source,
+      words_used: words.length,
+      warning: words.length < 30 ? "Short text: the models were trained on full articles (about 190 words after cleaning), so treat this result with extra caution." : null,
+      highlights: text.slice(0, 20000).split(/(\s+)/).map((t) => { const k = keep(t, m); return [t, k ? weights.get(k) ?? null : null]; }),
+    });
+  } catch (err) {
+    $("error").textContent = err.message;
+    $("result").hidden = true;
+    $("error").hidden = false;
+  } finally {
+    btn.innerHTML = label;
+    buttons.forEach((b) => (b.disabled = false));
+  }
+}
+
+function render(d) {
+  const fake = d.verdict === "Fake", conf = fake ? 1 - d.p_real : d.p_real;
+  $("r-model").textContent = (d.model === "bert" ? "Deep check · BERT" : "Check · TF-IDF + SVM") + ` · ${d.ms} ms · ${d.words_used} word${d.words_used === 1 ? "" : "s"} after cleaning`;
+  $("r-verdict").textContent = fake ? "Reads like fake news" : "Reads like real news";
+  $("r-verdict").className = "verdict " + (fake ? "fake" : "real");
+  $("r-conf").textContent = `${(conf * 100).toFixed(1)}% confidence`;
+  $("r-marker").style.left = `${d.p_real * 100}%`;
+  $("r-warn").textContent = d.warning || ""; $("r-warn").hidden = !d.warning;
+  $("r-source").hidden = !d.source;
+  if (d.source) $("r-source").textContent = `Fetched ${d.source.kind}: ${d.source.url}`;
+
+  const scored = d.highlights.filter(([, w]) => w != null);
+  const explain = d.model === "svm" && scored.length > 0;
+  $("r-explain").hidden = !explain; $("r-text-title").hidden = explain;
+
+  const max = Math.max(...scored.map(([, w]) => Math.abs(w)), 1e-9);
+  const box = $("r-text"); box.replaceChildren();
+  for (const [token, w] of d.highlights) {
+    if (!explain || w == null) { box.append(token); continue; }
+    const s = document.createElement("span");
+    s.textContent = token;
+    s.style.background = `rgb(var(--${w < 0 ? "fake" : "real"}-rgb) / ${(0.12 + 0.5 * Math.abs(w) / max).toFixed(2)})`;
+    s.title = `Pushes toward ${w < 0 ? "Fake" : "Real"}`;
+    box.append(s);
+  }
+
+  // Top signals: unique words by cleaned form, strongest first.
+  const seen = new Map();
+  for (const [t, w] of scored) { const k = t.toLowerCase(); if (!seen.has(k)) seen.set(k, w); }
+  const top = (sign) => [...seen].filter(([, w]) => Math.sign(w) === sign).sort((a, b) => Math.abs(b[1]) - Math.abs(a[1])).slice(0, 5);
+  for (const [id, sign] of [["r-fake", -1], ["r-real", 1]]) {
+    const ol = $(id); ol.replaceChildren();
+    const list = top(sign);
+    if (!list.length) { const li = document.createElement("li"); li.textContent = "none"; ol.append(li); }
+    for (const [word] of list) { const li = document.createElement("li"); li.textContent = word; ol.append(li); }
+  }
+
+  $("result").hidden = false;
+  $("result").scrollIntoView({ behavior: "smooth", block: "start" });
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,7 @@
+.venv/
+__pycache__/
+.claude/
+data/
+models/
+# BERT (110 MB) is hosted in the Hugging Face model repo, not here
+model/bert/
